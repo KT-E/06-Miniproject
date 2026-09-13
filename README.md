@@ -36,8 +36,12 @@
 - **동작**: 대상 EC2 또는 Auto Scaling Group 인스턴스에 새 `app.jar`를 동시에 배포하고, 배포 후 Health Check로 정상 동작 확인
 
 **배포 파이프라인 흐름**
-```
-CodeBuild artifact 생성 → CodeDeploy 실행 → ASG/EC2 대상 인스턴스 배포 → .sh 파일들 실행 → Health Check 확인
+```mermaid
+flowchart LR
+    A[CodeBuild<br/>artifact 생성] --> B[CodeDeploy 실행]
+    B --> C[ASG/EC2 대상<br/>인스턴스 배포]
+    C --> D[.sh 스크립트 실행]
+    D --> E[Health Check 확인]
 ```
 
 **전략 선정 이유**
@@ -52,8 +56,11 @@ CodeBuild artifact 생성 → CodeDeploy 실행 → ASG/EC2 대상 인스턴스 
 **목표**: GitHub에 코드가 올라오면 자동으로 빌드가 실행되도록 구성
 
 ### 파이프라인 흐름
-```
-GitHub Repo 확인 → CodePipeline → CodeBuild → 빌드 성공 / Artifact 생성
+```mermaid
+flowchart LR
+    A[GitHub Repo 확인] --> B[CodePipeline]
+    B --> C[CodeBuild]
+    C --> D[빌드 성공 /<br/>Artifact 생성]
 ```
 
 ### 진행 작업
@@ -75,11 +82,11 @@ GitHub Repo 확인 → CodePipeline → CodeBuild → 빌드 성공 / Artifact �
 **목표**: CodeBuild에서 생성된 Artifact를 실제 EC2 서버에 배포
 
 ### 배포 흐름
-```
-CodeDeploy가 EC2로 전달 (app.jar, appspec.yml, scripts)
-→ /home/ec2-user/app 경로에 복사
-→ .sh 파일들 실행
-→ Spring Boot 서버 실행 확인
+```mermaid
+flowchart TD
+    A["CodeDeploy가 EC2로 전달<br/>(app.jar, appspec.yml, scripts)"] --> B["/home/ec2-user/app 경로에 복사"]
+    B --> C[".sh 스크립트 실행"]
+    C --> D["Spring Boot 서버 실행 확인"]
 ```
 
 ### 진행 작업
@@ -112,13 +119,15 @@ CodeDeploy가 EC2로 전달 (app.jar, appspec.yml, scripts)
 **목표**: Deploy 단계에 Auto Scaling을 적용하여 안정적인 파이프라인 구성
 
 ### 아키텍처 구성
-```
-사용자 → AWS Load Balancer → Auto Scaling Group
-                                  ├── EC2 Instance 1
-                                  ├── EC2 Instance 2
-                                  ├── EC2 Instance 3
-                                  └── EC2 Instance 4
-→ CloudWatch 로그 수집 + 수동 승인
+```mermaid
+flowchart LR
+    User(["사용자"]) --> ALB["AWS Load Balancer"]
+    ALB --> ASG["Auto Scaling Group"]
+    ASG --> E1["EC2 Instance 1"]
+    ASG --> E2["EC2 Instance 2"]
+    ASG --> E3["EC2 Instance 3"]
+    ASG --> E4["EC2 Instance 4"]
+    ASG -.-> CW["CloudWatch 로그 수집<br/>+ 수동 승인"]
 ```
 
 ### 진행 작업
@@ -137,8 +146,10 @@ CodeDeploy가 EC2로 전달 (app.jar, appspec.yml, scripts)
 - SNS 이메일 구독 생성
 
 ### 알림 흐름
-```
-CodeBuild 완료 → SNS 구독 → 해당 이메일 알림 발송
+```mermaid
+flowchart LR
+    A[CodeBuild 완료] --> B[SNS 구독]
+    B --> C[이메일 알림 발송]
 ```
 
 ---
@@ -156,8 +167,13 @@ CodeBuild 완료 → SNS 구독 → 해당 이메일 알림 발송
 ### 문제 상황: H2 DB 권한 오류로 인한 502 Bad Gateway
 
 **장애 흐름**
-```
-H2 DB 권한(permission) 오류 → Spring Boot App 실행 실패 → ALB Health Check 실패 → 502 Bad Gateway
+```mermaid
+flowchart LR
+    A["H2 DB 권한(permission) 오류"] --> B["Spring Boot App 실행 실패"]
+    B --> C["ALB Health Check 실패"]
+    C --> D["502 Bad Gateway"]
+
+    style D fill:#f8d7da,stroke:#c0392b
 ```
 
 **원인 분석**
@@ -202,20 +218,31 @@ H2 DB 권한(permission) 오류 → Spring Boot App 실행 실패 → ALB Health
 
 ## 전체 아키텍처 요약
 
-```
-[GitHub Push]
-      ↓
-[CodePipeline: Source Stage]
-      ↓
-[CodeBuild]
-   ├─ 단위 테스트 (unit-test-buildspec.yml)
-   └─ 배포용 artifact 생성 (buildspec.yml)
-      ↓
-[CodeDeploy]
-      ↓
-[ALB] → [Auto Scaling Group] → [EC2 Instances]
-   ├─ prepare.sh / stop.sh / start.sh / validate.sh 실행
-   └─ Health Check (/health)
-      ↓
-[CloudWatch 로그 수집] + [SNS 이메일 알림] + [수동 승인 단계]
+```mermaid
+flowchart TD
+    Push([GitHub Push]) --> Source["CodePipeline: Source Stage"]
+    Source --> Build["CodeBuild"]
+
+    subgraph Build_Stage["CodeBuild 단계"]
+        direction LR
+        T["단위 테스트<br/>(unit-test-buildspec.yml)"]
+        A["배포용 artifact 생성<br/>(buildspec.yml)"]
+    end
+
+    Build --> Build_Stage
+    Build_Stage --> Deploy["CodeDeploy"]
+    Deploy --> ALB["ALB"]
+    ALB --> ASG["Auto Scaling Group"]
+    ASG --> EC2["EC2 Instances"]
+
+    subgraph Lifecycle["배포 스크립트 실행"]
+        direction LR
+        S1["prepare.sh"] --> S2["stop.sh"] --> S3["start.sh"] --> S4["validate.sh<br/>(Health Check: /health)"]
+    end
+
+    EC2 --> Lifecycle
+    Lifecycle --> Ops["운영 확인"]
+    Ops --> CW["CloudWatch 로그 수집"]
+    Ops --> SNS["SNS 이메일 알림"]
+    Ops --> Manual["수동 승인 단계"]
 ```
